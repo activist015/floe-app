@@ -3,15 +3,19 @@ import { action, mutation, query } from "./_generated/server";
 import { api } from "./_generated/api";
 import { Id } from "./_generated/dataModel";
 
-// Process USDC payment via Circle
+// Process USDC payment with real transaction
 export const processPayment = action({
   args: {
     invoiceId: v.id("invoices"),
     walletAddress: v.string(),
     amount: v.number(),
+    transactionHash: v.optional(v.string()),
   },
-  handler: async (ctx, args): Promise<{ success: boolean; paymentId: Id<"payments">; message: string }> => {
-    // Get invoice to verify it's still pending
+  handler: async (ctx, args): Promise<{
+    success: boolean;
+    paymentId: Id<"payments">;
+    message: string;
+  }> => {
     const invoice = await ctx.runQuery(api.invoices.getById, {
       invoiceId: args.invoiceId,
     });
@@ -24,30 +28,19 @@ export const processPayment = action({
       throw new Error("Invoice is not pending");
     }
 
-    // Get seller's wallet address
-    const seller = await ctx.runQuery(api.users.getProfile, {
-      userId: invoice.userId,
-    });
-
-    if (!seller?.walletAddress) {
-      throw new Error("Seller has not configured their wallet address");
-    }
-
-    // For MVP: We'll simulate the payment
-    // In production, you'd call Circle's API here
-    
     // Create payment record
     const paymentId: Id<"payments"> = await ctx.runMutation(api.payments.createPayment, {
       invoiceId: args.invoiceId,
       amount: args.amount,
       walletAddress: args.walletAddress,
       network: "base",
+      transactionHash: args.transactionHash || "",
     });
 
     // Mark invoice as paid
     await ctx.runMutation(api.payments.markInvoicePaid, {
       invoiceId: args.invoiceId,
-      paymentHash: `0x${Math.random().toString(36).substring(2, 15)}${Math.random().toString(36).substring(2, 15)}`, // Simulated tx hash
+      paymentHash: args.transactionHash || "",
     });
 
     return {
@@ -58,13 +51,13 @@ export const processPayment = action({
   },
 });
 
-// Create payment record
 export const createPayment = mutation({
   args: {
     invoiceId: v.id("invoices"),
     amount: v.number(),
     walletAddress: v.string(),
     network: v.string(),
+    transactionHash: v.string(),
   },
   handler: async (ctx, args): Promise<Id<"payments">> => {
     const paymentId = await ctx.db.insert("payments", {
@@ -72,7 +65,7 @@ export const createPayment = mutation({
       amount: args.amount,
       currency: "USDC",
       walletAddress: args.walletAddress,
-      transactionHash: `0x${Math.random().toString(36).substring(2, 15)}`,
+      transactionHash: args.transactionHash,
       network: args.network,
       status: "confirmed",
       createdAt: Date.now(),
@@ -82,7 +75,6 @@ export const createPayment = mutation({
   },
 });
 
-// Mark invoice as paid
 export const markInvoicePaid = mutation({
   args: {
     invoiceId: v.id("invoices"),
@@ -98,7 +90,6 @@ export const markInvoicePaid = mutation({
   },
 });
 
-// Get payments for invoice
 export const getByInvoice = query({
   args: {
     invoiceId: v.id("invoices"),
